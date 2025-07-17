@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
+// Firebase konfigurácia
 const firebaseConfig = {
   apiKey: "AIzaSyA-RcrnS3WDvHCMbsgVBI4baIoCE47PLkw",
   authDomain: "camera-move-chat.firebaseapp.com",
@@ -15,84 +16,73 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// === USER ID ===
+// === Vygeneruj náhodné ID hráča ===
 const userId = Math.random().toString(36).substring(2);
+const playerRef = ref(db, 'players/' + userId);
+onDisconnect(playerRef).remove();
 
-// === VIDEO ===
+// === Video setup ===
 const video = document.getElementById("myVideo");
 navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
   video.srcObject = stream;
 });
 
-// === PLAYER POSITION ===
+// === Pozícia hráča ===
 let x = Math.random() * 500;
 let y = Math.random() * 500;
 const speed = 5;
 
-// === SEND POSITION TO FIREBASE ===
-function sendPosition() {
-  set(ref(db, 'players/' + userId), {
-    x, y
-  });
-}
-sendPosition();
+// === Dočasné plátno na odosielanie snapshotov ===
+const tempCanvas = document.createElement("canvas");
+const tempCtx = tempCanvas.getContext("2d");
+tempCanvas.width = 80;
+tempCanvas.height = 80;
 
-// === HANDLE MOVEMENT ===
+// === Odošli snapshot + pozíciu do Firebase ===
+function sendVideoFrame() {
+  tempCtx.drawImage(video, 0, 0, 80, 80);
+  const frame = tempCanvas.toDataURL("image/webp");
+  set(playerRef, { x, y, frame });
+}
+
+// === Pohyb hráča ===
 document.addEventListener("keydown", (e) => {
   if (e.key === "w") y -= speed;
   if (e.key === "s") y += speed;
   if (e.key === "a") x -= speed;
   if (e.key === "d") x += speed;
-  sendPosition();
+  sendVideoFrame();
 });
 
-// === HIDDEN CANVAS for snapshot ===
-const hiddenCanvas = document.createElement("canvas");
-const hiddenCtx = hiddenCanvas.getContext("2d");
+// === Automatické odosielanie každú sekundu ===
+setInterval(sendVideoFrame, 1000);
 
-// === SEND VIDEO FRAME TO FIREBASE ===
-function sendVideoFrame() {
-  hiddenCanvas.width = 80;
-  hiddenCanvas.height = 80;
-  hiddenCtx.drawImage(video, 0, 0, 80, 80);
-  const dataUrl = hiddenCanvas.toDataURL("image/jpeg", 0.3);
-  set(ref(db, 'players/' + userId), {
-    x, y,
-    img: dataUrl
-  });
-}
-setInterval(sendVideoFrame, 1000); // každú sekundu
-
-// === READ OTHER PLAYERS ===
-let players = {};
-onValue(ref(db, 'players'), (snapshot) => {
-  players = snapshot.val() || {};
-});
-
-// === CANVAS ===
+// === Plátno a vykresľovanie ===
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-// === DRAW LOOP ===
+let players = {};
+
+onValue(ref(db, 'players'), (snapshot) => {
+  players = snapshot.val() || {};
+});
+
+// === Hlavná funkcia na kreslenie ===
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (let id in players) {
     const p = players[id];
-    if (!p) continue;
-
     if (id === userId) {
       ctx.drawImage(video, p.x, p.y, 80, 80);
+    } else if (p.frame) {
+      const img = new Image();
+      img.src = p.frame;
+      ctx.drawImage(img, p.x, p.y, 80, 80);
     } else {
-      if (p.img) {
-        const img = new Image();
-        img.src = p.img;
-        ctx.drawImage(img, p.x, p.y, 80, 80);
-      } else {
-        ctx.fillStyle = "gray";
-        ctx.fillRect(p.x, p.y, 80, 80);
-      }
+      ctx.fillStyle = "gray";
+      ctx.fillRect(p.x, p.y, 80, 80);
     }
   }
   requestAnimationFrame(draw);
