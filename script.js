@@ -16,6 +16,15 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+set(ref(db, 'users/' + userId), {
+  x,
+  y,
+  image: imageData
+}).then(() => {
+  console.log("✅ Úspešne nahrané");
+}).catch((err) => {
+  console.error("❌ Chyba pri nahrávaní:", err);
+});
 
 
 // 🎥 Spustenie kamery
