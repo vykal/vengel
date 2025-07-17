@@ -1,7 +1,13 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, set, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import {
+  getDatabase,
+  ref,
+  set,
+  onValue,
+  onDisconnect
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// Firebase konfigurácia
+// === Firebase Config ===
 const firebaseConfig = {
   apiKey: "AIzaSyA-RcrnS3WDvHCMbsgVBI4baIoCE47PLkw",
   authDomain: "camera-move-chat.firebaseapp.com",
@@ -16,12 +22,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// === Vygeneruj náhodné ID hráča ===
+// === Identifikácia používateľa ===
 const userId = Math.random().toString(36).substring(2);
-const playerRef = ref(db, 'players/' + userId);
-onDisconnect(playerRef).remove();
 
-// === Video setup ===
+// === Kamera ===
 const video = document.getElementById("myVideo");
 navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
   video.srcObject = stream;
@@ -32,32 +36,43 @@ let x = Math.random() * 500;
 let y = Math.random() * 500;
 const speed = 5;
 
-// === Dočasné plátno na odosielanie snapshotov ===
-const tempCanvas = document.createElement("canvas");
-const tempCtx = tempCanvas.getContext("2d");
-tempCanvas.width = 80;
-tempCanvas.height = 80;
+const userRef = ref(db, 'players/' + userId);
+onDisconnect(userRef).remove(); // automatické odstránenie
 
-// === Odošli snapshot + pozíciu do Firebase ===
-function sendVideoFrame() {
-  tempCtx.drawImage(video, 0, 0, 80, 80);
-  const frame = tempCanvas.toDataURL("image/webp");
-  set(playerRef, { x, y, frame });
+function sendPosition() {
+  set(userRef, {
+    x,
+    y
+  });
 }
+sendPosition();
 
-// === Pohyb hráča ===
 document.addEventListener("keydown", (e) => {
   if (e.key === "w") y -= speed;
   if (e.key === "s") y += speed;
   if (e.key === "a") x -= speed;
   if (e.key === "d") x += speed;
-  sendVideoFrame();
+  sendPosition();
 });
 
-// === Automatické odosielanie každú sekundu ===
-setInterval(sendVideoFrame, 1000);
+// === Odosielanie snímok videa ===
+function getVideoFrame() {
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = 80;
+  tempCanvas.height = 80;
+  const ctx = tempCanvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, 80, 80);
+  return tempCanvas.toDataURL('image/webp');
+}
 
-// === Plátno a vykresľovanie ===
+function sendFrame() {
+  const img = getVideoFrame();
+  set(ref(db, 'players/' + userId + '/frame'), img);
+}
+
+setInterval(sendFrame, 200); // každých 200 ms
+
+// === Sledovanie ostatných hráčov ===
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
@@ -69,22 +84,15 @@ onValue(ref(db, 'players'), (snapshot) => {
   players = snapshot.val() || {};
 });
 
-// === Hlavná funkcia na kreslenie ===
+// === Kreslenie ===
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
   for (let id in players) {
     const p = players[id];
     if (id === userId) {
       ctx.drawImage(video, p.x, p.y, 80, 80);
-    } else if (p.frame) {
-      const img = new Image();
-      img.src = p.frame;
-      ctx.drawImage(img, p.x, p.y, 80, 80);
     } else {
-      ctx.fillStyle = "gray";
-      ctx.fillRect(p.x, p.y, 80, 80);
-    }
-  }
-  requestAnimationFrame(draw);
-}
-draw();
+      if (p.frame) {
+        const img = new Image();
+        img.src = p.frame;
