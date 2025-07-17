@@ -46,29 +46,53 @@ document.addEventListener("keydown", (e) => {
   sendPosition();
 });
 
-// === RENDER ===
+// === HIDDEN CANVAS for snapshot ===
+const hiddenCanvas = document.createElement("canvas");
+const hiddenCtx = hiddenCanvas.getContext("2d");
+
+// === SEND VIDEO FRAME TO FIREBASE ===
+function sendVideoFrame() {
+  hiddenCanvas.width = 80;
+  hiddenCanvas.height = 80;
+  hiddenCtx.drawImage(video, 0, 0, 80, 80);
+  const dataUrl = hiddenCanvas.toDataURL("image/jpeg", 0.3);
+  set(ref(db, 'players/' + userId), {
+    x, y,
+    img: dataUrl
+  });
+}
+setInterval(sendVideoFrame, 1000); // každú sekundu
+
+// === READ OTHER PLAYERS ===
+let players = {};
+onValue(ref(db, 'players'), (snapshot) => {
+  players = snapshot.val() || {};
+});
+
+// === CANVAS ===
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
-let players = {};
-
-onValue(ref(db, 'players'), (snapshot) => {
-  players = snapshot.val() || {};
-});
-
+// === DRAW LOOP ===
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (let id in players) {
     const p = players[id];
+    if (!p) continue;
+
     if (id === userId) {
-      // vlastný video stream
       ctx.drawImage(video, p.x, p.y, 80, 80);
     } else {
-      // iní hráči - placeholder (neskôr vyriešime video)
-      ctx.fillStyle = "gray";
-      ctx.fillRect(p.x, p.y, 80, 80);
+      if (p.img) {
+        const img = new Image();
+        img.src = p.img;
+        ctx.drawImage(img, p.x, p.y, 80, 80);
+      } else {
+        ctx.fillStyle = "gray";
+        ctx.fillRect(p.x, p.y, 80, 80);
+      }
     }
   }
   requestAnimationFrame(draw);
